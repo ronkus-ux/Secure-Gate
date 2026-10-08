@@ -16,6 +16,10 @@ function LoginForm() {
   // confirm the account exists rather than leaving the user wondering.
   const justRegistered = searchParams.get("registered");
 
+  // Set by the reset-password form after a successful reset, so this page can
+  // confirm the new password is active.
+  const justReset = searchParams.get("reset");
+
   // Set by the dashboard when it turns away an unverified user, so this page
   // can explain what is missing instead of showing a blank form.
   const needsVerification = searchParams.get("verify");
@@ -94,6 +98,12 @@ function LoginForm() {
             </div>
           )}
 
+          {justReset && (
+            <div className="mt-6 rounded-md border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800">
+              Password updated. Sign in with your new password.
+            </div>
+          )}
+
           {needsVerification && (
             <div className="mt-6 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
               Your email is not verified yet. Check your inbox for the
@@ -149,6 +159,15 @@ function LoginForm() {
               {isSubmitting ? "Signing in..." : "Sign in"}
             </button>
           </form>
+
+          <p className="mt-4 text-center text-sm text-slate-500">
+            <Link
+              href="/forgot-password"
+              className="font-medium text-blue-600 hover:underline"
+            >
+              Forgot your password?
+            </Link>
+          </p>
         </div>
       </div>
     </main>

@@ -25,18 +25,26 @@ function getResend(): Resend {
 }
 
 /**
- * Builds the absolute verification URL.
+ * Builds an absolute URL for a "click this in your email" link.
  *
- * Absolute, not relative, because this link is opened from an email client,
+ * Absolute, not relative, because these links are opened from an email client,
  * not from our site - there is no existing origin to resolve against.
  *
  * NEXTAUTH_URL is the right source for it: it already points at wherever the
  * app is running (localhost:3000 here, vercel.app in production), and using one
  * env var rather than two means the link can never point at the wrong host.
  */
-function verificationUrl(token: string): string {
+function absoluteUrl(path: string): string {
   const base = process.env.NEXTAUTH_URL ?? "http://localhost:3000";
-  return `${base.replace(/\/+$/, "")}/verify-email/${token}`;
+  return `${base.replace(/\/+$/, "")}${path}`;
+}
+
+function verificationUrl(token: string): string {
+  return absoluteUrl(`/verify-email/${token}`);
+}
+
+function passwordResetUrl(token: string): string {
+  return absoluteUrl(`/reset-password/${token}`);
 }
 
 export type SendResult =
@@ -104,6 +112,66 @@ export async function sendVerificationEmail(
     return { ok: true, id: data?.id };
   } catch (err) {
     // Network failure, invalid key, quota - all land here.
+    console.error("Resend threw:", err);
+    return { ok: false, error: "Email could not be sent." };
+  }
+}
+
+/**
+ * Sends a password reset email.
+ *
+ * Same contract as sendVerificationEmail - never throws, reports failure as a
+ * value - because the forgot-password flow has the same property: a failed
+ * email must not make the user's situation worse. The endpoint still answers
+ * "we've sent a link" either way (it must, to avoid confirming whether the
+ * address exists); what varies internally is whether a token was created, so a
+ * real email is sent only where the lookup found the account.
+ */
+export async function sendPasswordResetEmail(
+  to: string,
+  token: string
+): Promise<SendResult> {
+  const from = process.env.RESEND_FROM_EMAIL;
+  if (!from) {
+    return { ok: false, error: "RESEND_FROM_EMAIL is not set." };
+  }
+
+  const url = passwordResetUrl(token);
+
+  try {
+    const { data, error } = await getResend().emails.send({
+      from: `SecureGate <${from}>`,
+      to,
+      subject: "Reset your password",
+      text: [
+        "You asked to reset your SecureGate password.",
+        "",
+        "Click the link below to choose a new one:",
+        url,
+        "",
+        "This link expires in 1 hour.",
+        "",
+        "If you did not request this, you can ignore this email - your password will stay the same.",
+      ].join("\n"),
+      html: [
+        "<!doctype html>",
+        '<html lang="en"><body style="font-family:system-ui,sans-serif;line-height:1.6;color:#0f172a">',
+        "<h1 style=\"font-size:20px\">Reset your password</h1>",
+        "<p>Click the button below to choose a new password.</p>",
+        `<p><a href="${url}" style="display:inline-block;background:#2563eb;color:#fff;padding:10px 18px;border-radius:6px;text-decoration:none">Reset password</a></p>`,
+        `<p style="color:#64748b;font-size:13px">Or paste this link into your browser:<br>${url}</p>`,
+        '<p style="color:#64748b;font-size:13px">This link expires in 1 hour. If you did not request this, ignore this email.</p>',
+        "</body></html>",
+      ].join(""),
+    });
+
+    if (error) {
+      console.error("Resend send failed:", error);
+      return { ok: false, error: "Email could not be sent." };
+    }
+
+    return { ok: true, id: data?.id };
+  } catch (err) {
     console.error("Resend threw:", err);
     return { ok: false, error: "Email could not be sent." };
   }

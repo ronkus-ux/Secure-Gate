@@ -71,3 +71,27 @@ export const loginSchema = z.object({
   // match the stored hash, which we report generically in the auth code.
   password: z.string().min(1, "Password is required"),
 });
+
+// Forgot-password: only the email matters, so only the email is validated.
+export const forgotPasswordSchema = z.object({
+  email: emailField,
+});
+
+// Reset-password: the token comes from the URL, the two password fields from
+// the form. The password rule is deliberately identical to registerSchema so
+// nobody can set a weaker password through the reset path than through signup.
+export const resetPasswordSchema = z
+  .object({
+    token: z.string().min(1, "Missing reset token"),
+    password: z
+      .string()
+      .min(8, "Password must be at least 8 characters")
+      .refine((value) => byteLength(value) <= MAX_BCRYPT_BYTES, {
+        message: `Password must be ${MAX_BCRYPT_BYTES} bytes or fewer`,
+      }),
+    confirmPassword: z.string(),
+  })
+  .refine((data) => data.password === data.confirmPassword, {
+    message: "Passwords do not match",
+    path: ["confirmPassword"],
+  });

@@ -2,16 +2,17 @@
 
 A secure authentication system built with Next.js 14 and PostgreSQL.
 
-**Status: Phase 3 — email verification complete.** Sign up, sign in, session
-handling, a protected dashboard, and the email verification flow are built and
-tested. Password reset (Phase 4), rate limiting (Phase 5) and the security
-hardening phases are not built yet. Nothing in this README describes features
-that do not exist.
+**Status: Phase 4 — forgot-password flow complete.** Sign up, sign in, session
+handling, a protected dashboard, the email verification flow, and the
+forgot/reset password flow are built and tested. Rate limiting (Phase 5) and
+the security hardening phases are not built yet. Nothing in this README
+describes features that do not exist.
 
 See [Phase 2 — Session strategy](#phase-2--session-strategy-jwt-vs-database)
-for the JWT justification the brief asks for, and
+for the JWT justification the brief asks for,
 [Phase 3 — Email verification](#phase-3--email-verification) for the
-verification flow.
+verification flow, and [Phase 4 — Forgot password](#phase-4--forgot-password)
+for the reset flow.
 
 ## Stack
 
@@ -23,7 +24,7 @@ verification flow.
 | ORM | Prisma 5.22 |
 | Database | PostgreSQL (Neon, region `eu-west-2`) |
 | Auth | NextAuth v4 — Credentials provider, JWT sessions |
-| Email | Resend — verification emails (free tier, no verified domain yet) |
+| Email | Resend — verification + password reset emails (free tier, no verified domain yet) |
 
 ## Current state
 
@@ -52,6 +53,16 @@ verification flow.
     enumerate addresses
   - `/dashboard` rejects signed-in but unverified users by re-reading
     `emailVerified` from the database on every request
+- Phase 4 forgot password:
+  - `/forgot-password` — email input; always answers with the same "link is on
+    its way" message whether or not the address has an account, so it cannot be
+    used to enumerate addresses
+  - `POST /api/forgot-password` — looks up the email, creates a reset token
+    (same crypto as verification, 1-hour expiry) and sends it via Resend
+  - `/reset-password/[token]` — validates the token and its expiry, then shows
+    the new-password form
+  - `POST /api/reset-password` — hashes the new password, swaps it in, and
+    deletes the token as one transaction; a used token cannot be replayed
 
 ## Phase 2 — Session strategy: JWT vs database
 
@@ -173,6 +184,56 @@ account holder's own address. Emails are sent from Resend's own
 Upgrading is a Resend console change (verify a domain) plus setting
 `RESEND_FROM_EMAIL`; the code does not change.
 
+## Phase 4 — Forgot password
+
+### How it works
+
+1. `/forgot-password` collects an email. `POST /api/forgot-password` looks the
+   address up; if it exists it creates a reset token with a **1-hour expiry**
+   (deliberately longer than the 15-minute verification link, because the user
+   has to read the email, invent a new password, and type it twice) and sends
+   it via Resend.
+2. The link opens `/reset-password/[token]`, which validates the token and its
+   expiry and renders the new-password form.
+3. `POST /api/reset-password` hashes the new password with bcrypt (same 12
+   rounds as signup), swaps it into the `User` row, and deletes the token — as
+   one transaction, so a used token can never be replayed.
+
+### Why the responses never confirm an email exists
+
+The brief's rule is explicit: *"if the email is not found, still return a
+success message."* Both the forgot-password page and its endpoint answer the
+same way whether the address has an account or not. An attacker probing with a
+list of emails learns nothing from this endpoint. The reset-token row is only
+created when the account genuinely exists, so the database stays clean for
+addresses that do not.
+
+### Why reset tokens share the verification crypto
+
+Verification and reset tokens are the same design — `crypto.randomBytes(32)`
+raw value in the email, only a SHA-256 hash stored, single-use with an expiry —
+so the reset helpers reuse the Phase 3 `generateVerificationToken` and
+`hashVerificationToken` functions. The only difference is the TTL: 15 minutes
+for verification, 1 hour for resets.
+
+### Why the reset writes are transactional
+
+"Swap the password" and "delete the token" answer one question — *did this
+link get used?* — so wrapping both in `prisma.$transaction` makes a
+half-done reset impossible. `updateMany` rather than `update` means a
+double-submit matches the row once and the second attempt finds no token.
+
+### Email delivery status
+
+Same free-tier constraint as Phase 3: without a verified domain, reset emails
+deliver to the account holder's own address only, sent from
+`onboarding@resend.dev`.
+
+| Scenario | Works? |
+| --- | --- |
+| Forgot-password flow end to end (own address) | ✅ tested |
+| Reset to other addresses | ⏳ needs a verified domain |
+
 ## Getting started
 
 ```bash
@@ -251,6 +312,15 @@ npm run dev              # http://localhost:3000
 - **Signed-in but unverified users cannot reach `/dashboard`.** The check
   re-reads `emailVerified` from the database on every request, so it reflects
   verification immediately and cannot be bypassed with an old cookie.
+- **The forgot-password endpoint cannot enumerate accounts.** It returns the
+  same 200 message whether the email exists or not and only creates a
+  reset-token row for addresses that actually have an account.
+- **Reset tokens are generated with the same CSPRNG and stored hashed** as
+  verification tokens; the raw value lives only in the emailed link. An
+  expired or unknown token renders a clear error with a "request a new link"
+  path, never a stack trace or an internal detail.
+- **The reset writes are transactional.** "Change password" and "delete token"
+  cannot be split by a crash, so a used reset link cannot be replayed.
 - **Prisma maps `DateTime` to `timestamp without time zone`** and normalises to
   UTC in the client. The application's own timestamp columns are therefore
   timezone-naive in the database, while Prisma's internal
@@ -290,3 +360,19 @@ Phase 3 verification flow, tested end to end:
 | Resend endpoint | identical response whether or not the account exists |
 
 Test users were deleted afterwards; the `User` table was left empty.
+
+Phase 4 forgot-password flow, tested end to end via HTTP:
+
+| Check | Result |
+| --- | --- |
+| `POST /api/forgot-password` unknown email | `200`, same generic message |
+| Same for a known email | `200`, identical message — no enumeration |
+| Reset-token row created | present, 1-hour expiry |
+| Malformed reset request | `400`, field errors |
+| `POST /api/reset-password` valid token | `200`, `{"ok":true}` |
+| Reset-token after use | deleted — reuse returns "This link is not valid" |
+| Old password | rejected (`401`) |
+| New password | accepted — login succeeds after reset |
+
+Test users (including the throwaway expired-token account) were deleted
+afterwards; the database was left empty.

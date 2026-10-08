@@ -113,3 +113,60 @@ export async function findVerificationToken(
 
   return row;
 }
+
+// ---------------------------------------------------------------------------
+// Phase 4 - password reset tokens.
+//
+// These are the same shape as verification tokens - a crypto random value sent
+// by email, stored only as its sha256 hash, with an expiry - so the crypto
+// below deliberately reuses the same generate and hash functions. The one real
+// difference is the TTL:
+//
+//   verification/token  15 minutes - the user clicks it seconds after reading
+//                        the email, so a short window costs nobody anything.
+//   password reset      1 hour     - the user has to find the email, open it,
+//                        invent a new password, AND type it correctly twice.
+//
+// A longer window is the trade of more convenience for a slightly bigger
+// attack surface; 1 hour is what the brief specifies.
+// ---------------------------------------------------------------------------
+
+export const PASSWORD_RESET_TOKEN_TTL_MS = 60 * 60 * 1000;
+
+/**
+ * Creates a one-hour password reset token for an email, replacing any
+ * existing one for the same address.
+ *
+ * Same "newest wins" rule as createVerificationToken: requesting several
+ * resets only ever makes the most recent link valid.
+ */
+export async function createPasswordResetToken(email: string): Promise<string> {
+  const token = generateVerificationToken();
+  const tokenHash = hashVerificationToken(token);
+  const expires = new Date(Date.now() + PASSWORD_RESET_TOKEN_TTL_MS);
+
+  await prisma.passwordResetToken.deleteMany({ where: { email } });
+  await prisma.passwordResetToken.create({ data: { email, tokenHash, expires } });
+
+  return token;
+}
+
+/**
+ * Looks up a password reset token by its hash.
+ *
+ * Mirrors findVerificationToken, including NOT checking expiry - the route
+ * that calls this needs to distinguish "expired" from "never existed" so the
+ * user gets the right message and a working next step.
+ */
+export async function findPasswordResetToken(
+  token: string
+): Promise<{ email: string; expires: Date } | null> {
+  const tokenHash = hashVerificationToken(token);
+
+  const row = await prisma.passwordResetToken.findUnique({
+    where: { tokenHash },
+    select: { email: true, expires: true },
+  });
+
+  return row;
+}
