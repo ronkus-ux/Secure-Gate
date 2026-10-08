@@ -3,6 +3,8 @@ import { Prisma } from "@prisma/client";
 
 import { prisma } from "@/lib/prisma";
 import { registerSchemaWithMatch } from "@/lib/validators/auth";
+import { createVerificationToken } from "@/lib/email/token";
+import { sendVerificationEmail } from "@/lib/email/send";
 import bcrypt from "bcryptjs";
 
 // The brief specifies 12 salt rounds. Lower numbers are faster but weaker;
@@ -59,10 +61,35 @@ export async function POST(request: Request) {
       select: { id: true, email: true, name: true, emailVerified: true },
     });
 
-    // 201 = created. Note the response contains no passwordHash, and no
-    // password either, because `select` decided what leaves this function.
+    // PHASE 3: send the verification email.
+    //
+    // Note the order. The account is created FIRST, then the email is sent.
+    // The reverse would be worse: an email that promises a working account for
+    // one that was never created is a lie the user cannot resolve.
+    //
+    // Also note this is deliberately NOT awaited in a way that can fail the
+    // request. sendVerificationEmail() returns { ok: false } rather than
+    // throwing, so a Resend outage degrades to "no email" instead of "your
+    // signup is broken". The user keeps their account and can hit resend.
+    const token = await createVerificationToken(email);
+    const sent = await sendVerificationEmail(email, token);
+
+    if (!sent.ok) {
+      // Logged for us, never returned to the client. Telling the browser
+      // "email failed" would be fine here (the account already exists, so
+      // there is nothing to leak), but the message is generic anyway, and
+      // one generic path is easier to keep correct than two.
+      console.error("Verification email failed for %s: %s", email, sent.error);
+    }
+
+    // 201 = created. Note the response contains no passwordHash, no raw
+    // token, and no tokenHash - `select` on the user plus this object decide
+    // what leaves this function.
+    //
+    // `verificationSent` is new in Phase 3: the signup page uses it to tell
+    // the user to check their inbox rather than implying they are done.
     return NextResponse.json(
-      { user },
+      { user, verificationSent: sent.ok },
       { status: 201 }
     );
   } catch (error) {

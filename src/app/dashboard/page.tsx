@@ -36,6 +36,26 @@ export default async function DashboardPage() {
     redirect("/login");
   }
 
+  // PHASE 3: only verified users may be here.
+  //
+  // Why this check lives HERE and not in middleware.ts:
+  //
+  // Middleware reads the JWT cookie, and the cookie does not know whether the
+  // account is verified - that fact lives in the database. Put the check in
+  // middleware and it would either block people who verified AFTER signing in
+  // (stale cookie), or let unverified users through (no way to tell).
+  //
+  // This page, however, uses getServerSession(), whose session callback re-reads
+  // emailVerified from the database on EVERY request (see auth.ts). So the value
+  // here is always current, minutes after the user clicks their link.
+  //
+  // If the user is logged in but not verified, they are directed to a page that
+  // explains what is missing, instead of being silently dumped back to /login
+  // with no reason.
+  if (!session.user.emailVerified) {
+    redirect("/login?verify=1");
+  }
+
   const { name, email, emailVerified } = session.user;
 
   return (

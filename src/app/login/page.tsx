@@ -16,6 +16,10 @@ function LoginForm() {
   // confirm the account exists rather than leaving the user wondering.
   const justRegistered = searchParams.get("registered");
 
+  // Set by the dashboard when it turns away an unverified user, so this page
+  // can explain what is missing instead of showing a blank form.
+  const needsVerification = searchParams.get("verify");
+
   // Where the guard in middleware.ts wanted the user to go before it bounced
   // them here. If there was no guard redirect, this is null and we send them to
   // the dashboard as normal.
@@ -86,7 +90,14 @@ function LoginForm() {
 
           {justRegistered && (
             <div className="mt-6 rounded-md border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800">
-              Account created. Please sign in.
+              Account created. Check your email for the verification link.
+            </div>
+          )}
+
+          {needsVerification && (
+            <div className="mt-6 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+              Your email is not verified yet. Check your inbox for the
+              verification link, or ask for a new one.
             </div>
           )}
 

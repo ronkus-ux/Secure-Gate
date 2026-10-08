@@ -2,14 +2,16 @@
 
 A secure authentication system built with Next.js 14 and PostgreSQL.
 
-**Status: Phase 2 — authentication core complete.** Sign up, sign in, session
-handling and a protected dashboard are built and tested. Email verification
-(Phase 3), password reset (Phase 4), rate limiting (Phase 5) and the security
+**Status: Phase 3 — email verification complete.** Sign up, sign in, session
+handling, a protected dashboard, and the email verification flow are built and
+tested. Password reset (Phase 4), rate limiting (Phase 5) and the security
 hardening phases are not built yet. Nothing in this README describes features
 that do not exist.
 
 See [Phase 2 — Session strategy](#phase-2--session-strategy-jwt-vs-database)
-for the JWT justification the brief asks for.
+for the JWT justification the brief asks for, and
+[Phase 3 — Email verification](#phase-3--email-verification) for the
+verification flow.
 
 ## Stack
 
@@ -21,7 +23,7 @@ for the JWT justification the brief asks for.
 | ORM | Prisma 5.22 |
 | Database | PostgreSQL (Neon, region `eu-west-2`) |
 | Auth | NextAuth v4 — Credentials provider, JWT sessions |
-| Email | Resend *(not yet implemented)* |
+| Email | Resend — verification emails (free tier, no verified domain yet) |
 
 ## Current state
 
@@ -36,8 +38,20 @@ for the JWT justification the brief asks for.
 - Phase 2 authentication:
   - `POST /api/register` — Zod validation, bcrypt at 12 salt rounds
   - `POST /api/auth/*` — NextAuth Credentials provider
-  - `/dashboard` — protected by middleware **and** a server-side session check
+  - `/dashboard` — protected by middleware, a server-side session check, and
+    (Phase 3) a verified-account check
   - `/register` and `/login` — the two forms
+- Phase 3 email verification:
+  - Verification token created with `crypto.randomBytes(32)`, stored as a
+    SHA-256 hash with a 15-minute expiry, in the `verification_tokens` table
+  - `POST /api/register` creates the token and sends the email via Resend
+  - `/verify-email/[token]` — validates, checks expiry, marks the user
+    verified, and deletes the token, all inside a transaction
+  - `POST /api/resend-verification` — issues a fresh link; its response is
+    identical whether or not the email has an account, so it cannot be used to
+    enumerate addresses
+  - `/dashboard` rejects signed-in but unverified users by re-reading
+    `emailVerified` from the database on every request
 
 ## Phase 2 — Session strategy: JWT vs database
 
@@ -104,6 +118,61 @@ Two deliberate departures, both security-related:
    timestamp encodes both state and time, so "when was this verified" is
    never lost.
 
+## Phase 3 — Email verification
+
+### How it works
+
+1. On signup, `crypto.randomBytes(32)` produces a 64-character hex token.
+2. The raw token is sent in the email; **only a SHA-256 hash of it is
+   stored**, with a 15-minute expiry, in `verification_tokens`.
+3. `/verify-email/[token]` looks the token up by hash, checks the expiry,
+   marks the user verified, and deletes the token — the last two as one
+   transaction.
+4. `/dashboard` re-reads `emailVerified` from the database on every request
+   and turns away signed-in users who are not verified.
+
+### Why SHA-256, not bcrypt
+
+bcrypt is slow on purpose, to defend *guessable* secrets (passwords).
+Verification tokens are 256 bits of `crypto.randomBytes` output — there is
+nothing to brute-force — so the cheap, fast hash is correct here. Slow hashing
+of an unguessable value would buy nothing.
+
+### Why the token is deleted in a transaction
+
+The "mark verified" and "delete token" writes answer one question — *was this
+token used?* — so a crash performing only one of them would leave a half-
+answer. Wrapping both in `prisma.$transaction` makes the half-state
+impossible. `updateMany` (not `update`) with `emailVerified: null` in the
+`where` means re-clicking an old link matches zero rows and changes nothing.
+
+### Why the check lives in `/dashboard`, not `middleware.ts`
+
+Middleware reads the JWT cookie, and the cookie does not know whether the
+account is verified — that fact lives in the database. A middleware check
+would either block people who verified after signing in (stale cookie) or let
+unverified users through. The dashboard uses `getServerSession()`, whose
+session callback re-reads `emailVerified` on every request, so the check is
+always current. This is why the earlier "no database read on the protected
+path" statement applies to **middleware** only; the dashboard page itself does
+one small lookup.
+
+### Email delivery status
+
+Phase 3 code is complete and the full loop is tested. Delivery is limited by
+the free tier: without a verified sending domain, Resend only delivers to the
+account holder's own address. Emails are sent from Resend's own
+`onboarding@resend.dev` address, which the test flow uses.
+
+| Scenario | Works? |
+| --- | --- |
+| Verify flow end to end (own address) | ✅ tested |
+| Resend a fresh link | ✅ tested |
+| Deliver to other addresses | ⏳ needs a verified domain |
+
+Upgrading is a Resend console change (verify a domain) plus setting
+`RESEND_FROM_EMAIL`; the code does not change.
+
 ## Getting started
 
 ```bash
@@ -165,9 +234,23 @@ npm run dev              # http://localhost:3000
 - **The dashboard redirect does not echo a user-supplied URL.** Passing a
   query-string value straight into a redirect is an open redirect; the login
   page reads `callbackUrl`, but the protected page never sends one.
-- **Verification and reset tokens will be generated with `crypto.randomBytes`,**
-  which is a cryptographically secure source and not predictable from
-  previous output the way `Math.random()` is.
+- **Verification tokens are generated with `crypto.randomBytes`,** which is a
+  cryptographically secure source and not predictable from previous output the
+  way `Math.random()` is.
+- **Verification tokens are stored hashed, never raw.** The raw token exists
+  only in the emailed link; the database holds a SHA-256 hash. A leaked
+  `verification_tokens` table yields tokens that cannot be used to verify
+  anyone's account. Expired tokens are deleted on use; a dead or unknown
+  token shows one generic "not valid" page.
+- **The verify writes are transactional.** "Mark verified" and "delete token"
+  cannot be split by a crash, and `updateMany` with `emailVerified: null`
+  makes a re-click a no-op instead of an error.
+- **The resend endpoint cannot enumerate accounts.** It returns the same
+  message whether the email exists, is already verified, or was never
+  registered.
+- **Signed-in but unverified users cannot reach `/dashboard`.** The check
+  re-reads `emailVerified` from the database on every request, so it reflects
+  verification immediately and cannot be bypassed with an old cookie.
 - **Prisma maps `DateTime` to `timestamp without time zone`** and normalises to
   UTC in the client. The application's own timestamp columns are therefore
   timezone-naive in the database, while Prisma's internal
@@ -192,5 +275,18 @@ password to be confirmed as not plaintext. Verified against the live database:
 | Sign in with correct password | session cookie issued |
 | `GET /api/auth/session` | returns id and email, **no password**, 30 min expiry |
 | `GET /dashboard` with session | `200`, renders the signed-in email |
+
+Phase 3 verification flow, tested end to end:
+
+| Check | Result |
+| --- | --- |
+| Signup creates unverified user + token row | `201`, `emailVerified: null` |
+| Log in as unverified user, open `/dashboard` | `307` → `/login?verify=1` |
+| `GET /verify-email/[token]` (valid link) | `200` "Email verified" |
+| Same session, `/dashboard` again | `200`, allowed (no re-login) |
+| Token row after use | deleted (`0` rows remain) |
+| Re-click the same link | "not valid", no change |
+| Malformed token URL | "not valid", no database hit |
+| Resend endpoint | identical response whether or not the account exists |
 
 Test users were deleted afterwards; the `User` table was left empty.
