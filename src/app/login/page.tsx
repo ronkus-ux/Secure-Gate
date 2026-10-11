@@ -72,7 +72,12 @@ function LoginForm() {
       router.replace(callbackUrl);
       router.refresh();
     } catch {
-      setFormError("Cannot reach the server. Check your connection and try again.");
+      // Reached when the request itself failed: the server is down, or the
+      // rate limiter returned 429 and the NextAuth client threw before
+      // handing us a result object. Both are worth telling the user about.
+      setFormError(
+        "Could not sign in right now. Check your connection, or you may have tried too many times - wait a few minutes and try again."
+      );
     } finally {
       setIsSubmitting(false);
     }
