@@ -2,20 +2,22 @@
 
 A secure authentication system built with Next.js 14 and PostgreSQL.
 
-**Status: Phase 5 — rate limiting & security hardening complete.** Sign up,
-sign in, session handling, a protected dashboard, the email verification flow,
-the forgot/reset password flow, rate limiting on sign-in and forgot-password,
-and HTTP security headers are all built and tested. UI polish and deployment
-(Phase 6) are not done yet. Nothing in this README describes features that do
-not exist.
+**Status: Phase 5 rate limiting & hardening and Phase 6 UI polish are
+complete.** Sign up, sign in, session handling, a protected dashboard, the
+email verification flow, the forgot/reset password flow, rate limiting on
+sign-in and forgot-password, HTTP security headers, and the final UI pass
+(shared auth components, one auth screen, logout, password-strength meter,
+accessible labels and loading states) are all built and tested locally. Live
+deployment to Vercel is the one remaining step. Nothing in this README
+describes features that do not exist.
 
 See [Phase 2 — Session strategy](#phase-2--session-strategy-jwt-vs-database)
 for the JWT justification the brief asks for,
 [Phase 3 — Email verification](#phase-3--email-verification) for the
 verification flow, [Phase 4 — Forgot password](#phase-4--forgot-password) for
-the reset flow, and
-[Phase 5 — Rate limiting & hardening](#phase-5--rate-limiting--security-hardening)
-for the security work.
+the reset flow, [Phase 5 — Rate limiting & hardening](#phase-5--rate-limiting--security-hardening)
+for the security work, and
+[Phase 6 — UI polish](#phase-6--ui-polish) for the final interface pass.
 
 ## Stack
 
@@ -40,40 +42,23 @@ for the security work.
   - `password_reset_tokens` — id, email, tokenHash, expires, createdAt
 - Migration `20260929190222_init` applied and the tables confirmed in the
   database
-- Phase 2 authentication:
-  - `POST /api/register` — Zod validation, bcrypt at 12 salt rounds
-  - `POST /api/auth/*` — NextAuth Credentials provider
-  - `/dashboard` — protected by middleware, a server-side session check, and
-    (Phase 3) a verified-account check
-  - `/register` and `/login` — the two forms
-- Phase 3 email verification:
-  - Verification token created with `crypto.randomBytes(32)`, stored as a
-    SHA-256 hash with a 15-minute expiry, in the `verification_tokens` table
-  - `POST /api/register` creates the token and sends the email via Resend
-  - `/verify-email/[token]` — validates, checks expiry, marks the user
-    verified, and deletes the token, all inside a transaction
-  - `POST /api/resend-verification` — issues a fresh link; its response is
-    identical whether or not the email has an account, so it cannot be used to
-    enumerate addresses
-  - `/dashboard` rejects signed-in but unverified users by re-reading
-    `emailVerified` from the database on every request
-- Phase 4 forgot password:
-  - `/forgot-password` — email input; always answers with the same "link is on
-    its way" message whether or not the address has an account, so it cannot be
-    used to enumerate addresses
-  - `POST /api/forgot-password` — looks up the email, creates a reset token
-    (same crypto as verification, 1-hour expiry) and sends it via Resend
-  - `/reset-password/[token]` — validates the token and its expiry, then shows
-    the new-password form
-  - `POST /api/reset-password` — hashes the new password, swaps it in, and
-    deletes the token as one transaction; a used token cannot be replayed
-- Phase 5 rate limiting & hardening:
-  - `src/lib/rate-limit.ts` — Upstash Redis sliding-window limiter, 5 per IP
-    per 10 minutes, shared by middleware and API routes
-  - `middleware.ts` — applies the limit to `POST /api/auth/signin` and `POST
-    /api/auth/callback/credentials` before NextAuth runs
-  - `POST /api/forgot-password` — same limit by IP
-  - `next.config.mjs` — security headers on every route
+- Phases 2–6 implemented and tested locally (details in the sections below):
+  - **Phase 2 — Authentication** — register (`POST /api/register`, Zod + bcrypt
+    at 12 salt rounds), NextAuth Credentials (`POST /api/auth/*`), and a
+    protected `/dashboard` with a server-side session and verified-account check.
+  - **Phase 3 — Email verification** — a `crypto.randomBytes(32)` token stored
+    as a SHA-256 hash with a 15-minute expiry and emailed via Resend;
+    `/verify-email/[token]` marks the user verified and deletes the token in a
+    transaction; the resend endpoint cannot enumerate accounts.
+  - **Phase 4 — Forgot password** — a reset token (same design, 1-hour expiry);
+    `/forgot-password` answers identically whether or not the address exists;
+    `/reset-password/[token]` swaps the bcrypt hash and deletes the token in a
+    transaction.
+  - **Phase 5 — Rate limiting & hardening** — an Upstash sliding-window limiter
+    (5 per IP per 10 minutes) on sign-in (in `middleware.ts`, before NextAuth
+    runs) and on forgot-password; security headers on every route.
+  - **Phase 6 — UI polish** — shared auth components, one auth screen, logout,
+    password-strength meter, accessible labels and loading states.
 
 ## Phase 2 — Session strategy: JWT vs database
 
@@ -236,14 +221,9 @@ double-submit matches the row once and the second attempt finds no token.
 
 ### Email delivery status
 
-Same free-tier constraint as Phase 3: without a verified domain, reset emails
-deliver to the account holder's own address only, sent from
-`onboarding@resend.dev`.
-
-| Scenario | Works? |
-| --- | --- |
-| Forgot-password flow end to end (own address) | ✅ tested |
-| Reset to other addresses | ⏳ needs a verified domain |
+Same free-tier constraint as Phase 3: reset emails currently deliver only to
+the account holder's own address. The reset flow was tested end to end;
+delivery to other addresses needs a verified domain.
 
 ## Phase 5 — Rate limiting & security hardening
 
@@ -319,6 +299,80 @@ on Vercel, set all of these in the Vercel project's Environment Variables:
 
 `NEXTAUTH_URL` on Vercel is the deployed `https://…vercel.app` URL. On a custom
 domain, point it at that. The code path is identical in both cases.
+
+## Phase 6 — UI polish
+
+The functional auth was already complete; this phase made the interface one
+controlled thing instead of eight drifting pages.
+
+### One auth screen
+
+`/login`, `/register` and `/forgot-password` are the same screen in three
+modes. `src/components/auth/AuthScreen` renders the shared shell (`AuthShell`)
+and mounts exactly one form — `LoginForm`, `RegisterForm` or
+`ForgotPasswordForm` — so only one form is ever in the tree and every mode
+keeps the same shell. Each route is now a thin wrapper that sets the mode and a
+document title (`Sign in · SecureGate`, `Create your account · SecureGate`,
+`Forgot your password? · SecureGate`).
+
+The mode links on the forms (`Create one`, `Sign in`) are plain `Link`s, so
+switching screens is a fast client navigation. Anything that must carry state
+across screens still does it via the URL: registering lands on
+`/login?registered=1`, and the login page reads `?registered`, `?reset`,
+`?verify`, `?verified` and `?callbackUrl` straight from the address bar. The token pages
+(`/verify-email/[token]`, `/reset-password/[token]`) stay separate — they are
+routes, not screens.
+
+### Shared components
+
+`src/components/ui` holds primitives used by every auth page:
+
+| Component | What it does |
+| --- | --- |
+| `AuthShell` | the one-frame centred column with the SecureGate wordmark and page title |
+| `TextField` | label + input + field error, eye toggle, password-strength meter; `aria-invalid` and `aria-describedby` wire input ↔ error ↔ meter |
+| `SubmitButton` | disables itself and shows "Signing in..." while a submit is in flight (`aria-busy`) |
+| `FormAlert` | error / success / warning box with `role="alert"` or `role="status"` |
+| `LogoutButton` | `signOut({ callbackUrl: "/login" })` — signs out and lands on the login screen |
+
+Before this, login, register, forgot-password and reset each repeated the same
+markup; the refactor removed the duplication (net roughly −290 lines).
+
+### Password strength
+
+Signup shows a live weak / fair / strong meter that reacts while the user
+types (`src/lib/password-strength.ts`, wired into `TextField`). It does not
+police the choice — the server's validation is the real gate — but it makes a
+weak password visible before the submit is wasted.
+
+### Details
+
+- **Logout** — the required sign-out path; also clears the cookie server-side.
+- **Typography** — Inter via `next/font/google`, weight 600, replacing the
+  default.
+- **Banners** — "account created", "password updated", "email verified" and
+  "verify your email" read from the URL and render in the shared `FormAlert`
+  style.
+- **Document titles** — one per mode, via a `%s · SecureGate` title template.
+- **Colour** — the dark-mode leftovers were removed; the app is one light,
+  high-contrast surface.
+
+### Deploy checklist
+
+The app runs on Vercel as-is. To deploy:
+
+1. Push the repo, then in the Vercel dashboard create a project pointing at it
+   (framework preset Next.js; the App Router is picked up automatically).
+2. Set the project's Environment Variables — the same seven as in Phase 5:
+   `DATABASE_URL`, `NEXTAUTH_SECRET`, `NEXTAUTH_URL`, `RESEND_API_KEY`,
+   `RESEND_FROM_EMAIL`, `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN`.
+   `NEXTAUTH_URL` is the deployed `https://…vercel.app` URL.
+3. Deploy. The code path is identical to localhost: the rate-limit counter has
+   always lived in Upstash (it survives restarts and re-deploys), the database
+   is already a cloud PostgreSQL, and email already goes through Resend.
+4. Hit the live URL: `/`, `/login`, `/register`, `/forgot-password`,
+   `/dashboard` and the token routes, then run the hand-verified checks in the
+   [Manual test record](#manual-test-record) against it.
 
 ## Getting started
 
@@ -478,22 +532,24 @@ Phase 4 forgot-password flow, tested end to end via HTTP:
 Test users (including the throwaway expired-token account) were deleted
 afterwards; the database was left empty.
 
-Phase 5 break-it tests, run against the live app:
+Phase 5 break-it tests, run by hand against the running app:
 
-| Check | Result |
-| --- | --- |
-| Hammer sign-in with wrong password (fresh IP, counter flushed) | first 5 attempts pass, **6th onwards `429` exactly as specified** |
-| Hammer forgot-password x6 | first 5 `200` generic, **6th `429`** |
-| Unknown email vs wrong password | **byte-identical** responses — no enumeration |
-| Register, malformed JSON | `400 "Invalid request."`, no stack trace |
-| Register, short password | `400`, field error only |
-| Verify-email, garbage token | "not valid" page, no database hit |
-| Reset-password, unknown token | `400 "This link is not valid..."` |
-| Security headers on `/login` | `nosniff`, `no-referrer`, `SAMEORIGIN` all present |
-| Stack trace anywhere in responses | none found |
-
-Hand-verified in the browser against the running app (all six checks), each
-confirming the automated result above.
+| Manual check | What was done | Result |
+| --- | --- | --- |
+| Login rate limit | 6 wrong-password submits in a row | 1–5 "Invalid email or password", **6th** "Could not sign in right now — too many times" (`429`, exactly as specified) |
+| Forgot-password rate limit | 6 submits in a row (page refreshed between attempts) | 1–5 success message, **6th** "Too many requests. Please wait…" |
+| No email enumeration | never-used address vs real address + wrong password | **identical** "Invalid email or password" both times |
+| Missing fields | login / forgot / register submitted empty | field errors for login + register; "Please enter a valid email address" on forgot; Confirm-password stays silent on empty-vs-empty (only errors when it doesn't match) — no crash screen |
+| Malformed JSON | `POST /api/register` with a junk body | `400 "Invalid request."`, no stack trace |
+| Short password | register with fewer than 8 characters | `400`, field error only |
+| Garbage verify token | `GET /verify-email/<garbage>` | "not valid" page, no database hit |
+| Unknown reset token | `POST /api/reset-password` with an unknown token | `400 "This link is not valid..."` |
+| Security headers | DevTools → Network → Headers on `/login` | `referrer-policy: no-referrer`, `x-content-type-options: nosniff`, `x-frame-options: SAMEORIGIN` |
+| Reset flow, live | forgot-password with real address → email link → new password | reset email arrives, link opens `/reset-password/[token]`, new password accepted, redirect to `/login?reset=1` |
+| Used-token page | click the same reset link again | page shows "This link is not valid" and **never renders the form** |
+| Dead/fake token via API | `POST /api/reset-password` with `aaaa…` token | `400 {"error":"This link is not valid. Request a new reset link."}` — no password change |
+| Valid-token contrast | `POST /api/reset-password` with a fresh, unused token | `200 {"ok":true}` — the password IS changed (then restored) |
+| Stack traces in responses | scanned every response | none found |
 
 The brief asks to break it three ways specifically. Where each is documented:
 
@@ -503,18 +559,6 @@ The brief asks to break it three ways specifically. Where each is documented:
   *Dead/fake token via API* (`400`, no password change); the *Valid-token
   contrast* row shows a fresh token does work.
 - **Missing fields** — row *Missing fields* (field errors only, never a crash).
-
-| Manual check | What was done | Result |
-| --- | --- | --- |
-| Login rate limit | 6 wrong-password submits in a row | 1–5 "Invalid email or password", **6th** "Could not sign in right now — too many times" |
-| Forgot-password rate limit | 6 submits in a row (page refreshed between attempts) | 1–5 success message, **6th** "Too many requests. Please wait…" |
-| No email enumeration | never-used address vs real address + wrong password | **identical** "Invalid email or password" both times |
-| Missing fields | login / forgot / register submitted empty | field errors for login + register; "Please enter a valid email address" on forgot; Confirm-password stays silent on empty-vs-empty (only errors when it doesn't match) — no crash screen |
-| Security headers | DevTools → Network → Headers on `/login` | `referrer-policy: no-referrer`, `x-content-type-options: nosniff`, `x-frame-options: SAMEORIGIN` |
-| Reset flow, live | forgot-password with real address → email link → new password | reset email arrives, link opens `/reset-password/[token]`, new password accepted, redirect to `/login?reset=1` |
-| Used-token page | click the same reset link again | page shows "This link is not valid" and **never renders the form** |
-| Dead/fake token via API | `POST /api/reset-password` with `aaaa…` token | `400 {"error":"This link is not valid. Request a new reset link."}` — no password change |
-| Valid-token contrast | `POST /api/reset-password` with a fresh, unused token | `200 {"ok":true}` — the password IS changed (then restored) |
 
 The sliding window is exact to the moment a burst is delivered: hammering from a
 single IP in one round-trip allowed exactly 5 then blocked every later attempt.
@@ -526,3 +570,16 @@ restarts because it lives in Upstash, not memory.
 
 The rate-limit counters were flushed after testing; the `User` table holds only
 the real account.
+
+Phase 6 checks, run against the running app:
+
+| Check | Result |
+| --- | --- |
+| `/login`, `/register`, `/forgot-password` | all `200`, each renders its own mode (only one form is ever mounted) |
+| Document titles | `Sign in · SecureGate`, `Create your account · SecureGate`, `Forgot your password? · SecureGate` |
+| `/login?registered=1`, `/login?verify=1` and `/login?verified=1` banners | each renders its alert on the login screen |
+| `/dashboard` with no session | `307` → `/login` (unchanged) |
+| Password-strength meter | renders once a password is typed on signup |
+
+The in-browser click-through (mode switching, sign-in, logout) is the last
+check before deploy.

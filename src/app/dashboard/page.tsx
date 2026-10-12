@@ -1,8 +1,8 @@
 import { getServerSession } from "next-auth";
 import { redirect } from "next/navigation";
-import Link from "next/link";
 
 import { authOptions } from "@/lib/auth";
+import LogoutButton from "@/components/ui/LogoutButton";
 
 // No "use client" here on purpose. This file runs on the server only, so the
 // session is read on our machine and never exposed to the browser as
@@ -59,66 +59,37 @@ export default async function DashboardPage() {
   const { name, email, emailVerified } = session.user;
 
   return (
-    <main className="min-h-screen bg-slate-50 px-4 py-12">
-      <div className="mx-auto w-full max-w-2xl">
-        <div className="rounded-lg border border-slate-200 bg-white p-8 shadow-sm">
-          <p className="text-sm font-medium uppercase tracking-wide text-blue-600">
-            Dashboard
-          </p>
+    <main className="flex min-h-screen items-center justify-center bg-slate-50 px-4 py-12">
+      <div className="w-full max-w-2xl rounded-lg border border-slate-200 bg-slate-50 p-8">
+        <p className="text-sm font-semibold uppercase tracking-wide text-blue-600">
+          Dashboard
+        </p>
 
-          <h1 className="mt-2 text-2xl font-bold tracking-tight text-slate-900">
-            Welcome{ name ? `, ${name}` : "" }
-          </h1>
-          <p className="mt-2 text-sm text-slate-600">{email}</p>
+        <h1 className="mt-2 text-2xl font-bold tracking-tight text-slate-900">
+          Welcome{name ? `, ${name}` : ""}
+        </h1>
 
-          {emailVerified ? (
-            <div className="mt-8 rounded-md border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800">
-              <p className="font-semibold">Email verified</p>
-            </div>
-          ) : (
-            // Phase 2 only requires a valid session, so an unverified user can
-            // still reach this page. Phase 3 makes this branch strict: it sends
-            // unverified users out to verify their email address.
-            <div className="mt-8 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-              <p className="font-semibold">Email not verified yet</p>
-              <p className="mt-1">
-                Phase 2 only requires you to be signed in, so you can see this
-                page. Phase 3 adds the emailed verification link and makes this
-                check strict.
-              </p>
-            </div>
-          )}
-
-          <dl className="mt-8 space-y-3 text-sm">
-            <div className="flex justify-between border-b border-slate-100 pb-3">
-              <dt className="text-slate-500">Signed in as</dt>
-              <dd className="font-medium text-slate-900">{email}</dd>
-            </div>
-            <div className="flex justify-between border-b border-slate-100 pb-3">
-              <dt className="text-slate-500">User ID</dt>
-              <dd className="font-mono text-xs text-slate-700">
-                {session.user.id}
-              </dd>
-            </div>
-            <div className="flex justify-between">
-              <dt className="text-slate-500">Email verified</dt>
-              <dd className="font-medium text-slate-900">
-                {emailVerified ? "Yes" : "Not yet"}
-              </dd>
-            </div>
-          </dl>
-
-          {/* Placeholder for later phases. Phase 4 builds /settings, and the
-              admin roles land further along. Adding the links now would give
-              you 404s. */}
-          <div className="mt-8 flex gap-4 text-sm">
-            <Link
-              href="/"
-              className="font-semibold text-blue-600 hover:underline"
-            >
-              Back to home
-            </Link>
+        <dl className="mt-8 space-y-3 text-sm">
+          <div className="flex justify-between border-b border-slate-200 pb-3">
+            <dt className="text-slate-500">Signed in as</dt>
+            <dd className="font-semibold text-slate-900">{email}</dd>
           </div>
+          <div className="flex justify-between border-b border-slate-200 pb-3">
+            <dt className="text-slate-500">User ID</dt>
+            <dd className="font-mono text-xs text-slate-700">
+              {session.user.id}
+            </dd>
+          </div>
+          <div className="flex justify-between">
+            <dt className="text-slate-500">Email verified</dt>
+            <dd className="font-semibold text-slate-900">
+              {emailVerified ? "Yes" : "Not yet"}
+            </dd>
+          </div>
+        </dl>
+
+        <div className="mt-8 flex justify-end border-t border-slate-200 pt-4">
+          <LogoutButton />
         </div>
       </div>
     </main>

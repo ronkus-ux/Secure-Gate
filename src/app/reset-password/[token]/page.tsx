@@ -5,6 +5,7 @@ import {
   findPasswordResetToken,
   hashVerificationToken,
 } from "@/lib/email/token";
+import AuthShell from "@/components/ui/AuthShell";
 
 import ResetPasswordForm from "./ResetPasswordForm";
 
@@ -44,10 +45,10 @@ export default async function ResetPasswordPage({
   // Shape check first: a wrong-shaped token never reaches the database.
   if (!TOKEN_SHAPE.test(token)) {
     return (
-      <Shell title="This link is not valid">
+      <AuthShell title="This link is not valid">
         <p>The reset link is incomplete or was copied incorrectly.</p>
         <AltLinks />
-      </Shell>
+      </AuthShell>
     );
   }
 
@@ -55,7 +56,7 @@ export default async function ResetPasswordPage({
 
   if (outcome === "expired") {
     return (
-      <Shell title="This link has expired">
+      <AuthShell title="This link has expired">
         <p>
           Reset links last 1 hour, and this one has run out. That is normal -
           request a fresh one to pick a new password.
@@ -69,16 +70,16 @@ export default async function ResetPasswordPage({
           </Link>
         </p>
         <AltLinks />
-      </Shell>
+      </AuthShell>
     );
   }
 
   if (outcome === "invalid") {
     return (
-      <Shell title="This link is not valid">
+      <AuthShell title="This link is not valid">
         <p>
-          The reset link may have already been used. If you reset your
-          password already, you can sign in with the new one.
+          The reset link may have already been used. If you reset your password
+          already, you can sign in with the new one.
         </p>
         <p className="mt-4">
           <Link
@@ -89,7 +90,7 @@ export default async function ResetPasswordPage({
           </Link>
         </p>
         <AltLinks />
-      </Shell>
+      </AuthShell>
     );
   }
 
@@ -99,7 +100,7 @@ export default async function ResetPasswordPage({
 
 function AltLinks() {
   return (
-    <p className="mt-4 text-sm text-slate-500">
+    <p className="mt-6 text-sm text-slate-500">
       <Link href="/login" className="font-semibold text-blue-600 hover:underline">
         Sign in
       </Link>{" "}
@@ -108,31 +109,5 @@ function AltLinks() {
         Forgot password
       </Link>
     </p>
-  );
-}
-
-function Shell({
-  title,
-  children,
-}: {
-  title: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <main className="flex min-h-screen items-center justify-center bg-slate-50 px-4 py-12">
-      <div className="w-full max-w-md">
-        <div className="rounded-lg border border-slate-200 bg-white p-8 shadow-sm">
-          <p className="text-sm font-medium uppercase tracking-wide text-blue-600">
-            Reset password
-          </p>
-          <h1 className="mt-2 text-2xl font-bold tracking-tight text-slate-900">
-            {title}
-          </h1>
-          <div className="mt-4 text-sm leading-relaxed text-slate-600">
-            {children}
-          </div>
-        </div>
-      </div>
-    </main>
   );
 }

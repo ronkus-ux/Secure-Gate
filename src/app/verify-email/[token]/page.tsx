@@ -5,6 +5,8 @@ import {
   findVerificationToken,
   hashVerificationToken,
 } from "@/lib/email/token";
+import AuthShell from "@/components/ui/AuthShell";
+import FormAlert from "@/components/ui/FormAlert";
 
 // ---------------------------------------------------------------------------
 // /verify-email/[token]
@@ -118,14 +120,14 @@ export default async function VerifyEmailPage({
   // Shape check first: nothing shaped wrong reaches the database.
   if (!TOKEN_SHAPE.test(token)) {
     return (
-      <Shell title="This link is not valid">
+      <AuthShell title="This link is not valid">
         <p>
           The link is incomplete or was copied incorrectly. Request a new one
           below, or sign up again if you have not created an account yet.
         </p>
         <ResendForm />
         <AltLinks />
-      </Shell>
+      </AuthShell>
     );
   }
 
@@ -133,43 +135,45 @@ export default async function VerifyEmailPage({
 
   if (outcome === "verified") {
     return (
-      <Shell title="Email verified" tone="ok">
-        <p>Your email address is confirmed. You can sign in now.</p>
+      <AuthShell title="Email verified">
+        <FormAlert tone="success">
+          Your email address is confirmed. You can sign in now.
+        </FormAlert>
         <p className="mt-4">
           <Link
-            href="/login"
+            href="/login?verified=1"
             className="font-semibold text-blue-600 hover:underline"
           >
             Go to sign in
           </Link>
         </p>
-      </Shell>
+      </AuthShell>
     );
   }
 
   if (outcome === "expired") {
     return (
-      <Shell title="This link has expired">
+      <AuthShell title="This link has expired">
         <p>
           Verification links last 15 minutes, and this one has run out. That is
           normal - request a fresh link and open it straight away.
         </p>
         <ResendForm email={email} />
         <AltLinks />
-      </Shell>
+      </AuthShell>
     );
   }
 
   // outcome === "invalid"
   return (
-    <Shell title="This link is not valid">
+    <AuthShell title="This link is not valid">
       <p>
         The link may have already been used, or it was never issued. If you
         already verified your email, you can sign in.
       </p>
       <ResendForm />
       <AltLinks />
-    </Shell>
+    </AuthShell>
   );
 }
 
@@ -184,39 +188,5 @@ function AltLinks() {
         Create an account
       </Link>
     </p>
-  );
-}
-
-function Shell({
-  title,
-  children,
-  tone = "neutral",
-}: {
-  title: string;
-  children: React.ReactNode;
-  tone?: "neutral" | "ok";
-}) {
-  return (
-    <main className="flex min-h-screen items-center justify-center bg-slate-50 px-4 py-12">
-      <div className="w-full max-w-md">
-        <div className="rounded-lg border border-slate-200 bg-white p-8 shadow-sm">
-          <p
-            className={
-              tone === "ok"
-                ? "text-sm font-medium uppercase tracking-wide text-green-600"
-                : "text-sm font-medium uppercase tracking-wide text-blue-600"
-            }
-          >
-            Verify email
-          </p>
-          <h1 className="mt-2 text-2xl font-bold tracking-tight text-slate-900">
-            {title}
-          </h1>
-          <div className="mt-4 text-sm leading-relaxed text-slate-600">
-            {children}
-          </div>
-        </div>
-      </div>
-    </main>
   );
 }
