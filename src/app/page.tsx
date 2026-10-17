@@ -6,17 +6,17 @@ import Link from "next/link";
 // icons - one primary action and one secondary link is the whole job.
 export default function Home() {
   return (
-    <main className="flex min-h-screen items-center justify-center bg-slate-50 px-4 py-12">
+    <main className="flex min-h-screen items-center justify-center bg-slate-50 px-6 py-12 sm:px-10">
       <div className="w-full max-w-4xl text-center">
-        <p className="text-2xl font-bold uppercase tracking-wider text-blue-600">
+        <p className="text-[clamp(1.25rem,2.5vw,1.5rem)] font-bold uppercase tracking-wider text-blue-600">
           SecureGate
         </p>
 
-        <h1 className="mt-2 text-[52px] font-bold leading-tight tracking-tight text-slate-900">
+        <h1 className="mt-2 text-[clamp(1.5rem,4.5vw,3.25rem)] font-bold leading-tight tracking-tight text-slate-900">
           Secure sign-in, email verification, and password reset.
         </h1>
 
-        <p className="mt-2 text-[15px] font-medium leading-relaxed text-slate-600">
+        <p className="mx-auto mt-4 max-w-md text-[15px] font-medium leading-relaxed text-slate-600 sm:max-w-xl">
           A focused authentication system with session security and rate
           limiting built in.
         </p>

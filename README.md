@@ -2,14 +2,15 @@
 
 A secure authentication system built with Next.js 14 and PostgreSQL.
 
-**Status: Phase 5 rate limiting & hardening and Phase 6 UI polish are
-complete.** Sign up, sign in, session handling, a protected dashboard, the
-email verification flow, the forgot/reset password flow, rate limiting on
-sign-in and forgot-password, HTTP security headers, and the final UI pass
-(shared auth components, one auth screen, logout, password-strength meter,
-accessible labels and loading states) are all built and tested locally. Live
-deployment to Vercel is the one remaining step. Nothing in this README
-describes features that do not exist.
+**Status: complete and deployed.** Sign up, sign in, session handling, a
+protected dashboard, the email verification flow, the forgot/reset password
+flow, rate limiting on sign-in and forgot-password, HTTP security headers, and
+the final UI pass (shared auth components, one auth screen, logout,
+password-strength meter, accessible labels and loading states) are all built
+and tested. The app is live at
+**https://secure-gate-peach.vercel.app/**, with verification and reset emails
+sent from a verified sending domain (see [Stack](#stack)). Nothing in this
+README describes features that do not exist.
 
 See [Phase 2 — Session strategy](#phase-2--session-strategy-jwt-vs-database)
 for the JWT justification the brief asks for,
@@ -29,36 +30,16 @@ for the security work, and
 | ORM | Prisma 5.22 |
 | Database | PostgreSQL (Neon, region `eu-west-2`) |
 | Auth | NextAuth v4 — Credentials provider, JWT sessions |
-| Email | Resend — verification + password reset emails (free tier, no verified domain yet) |
+| Email | Resend — verification + password reset emails, sent from `noreply@yinyindesign.com.ng` (verified domain) |
 | Rate limiting | Upstash Redis — sliding window, 5 per IP per 10 min on sign-in and forgot-password |
 
 ## Current state
 
-- Next.js project scaffolded with App Router and TypeScript
-- Prisma initialised and connected to a cloud PostgreSQL database
-- Three models defined and migrated:
-  - `User` — id, name, email, password, emailVerified, createdAt, updatedAt
-  - `verification_tokens` — id, identifier, tokenHash, expires, createdAt
-  - `password_reset_tokens` — id, email, tokenHash, expires, createdAt
-- Migration `20260929190222_init` applied and the tables confirmed in the
-  database
-- Phases 2–6 implemented and tested locally (details in the sections below):
-  - **Phase 2 — Authentication** — register (`POST /api/register`, Zod + bcrypt
-    at 12 salt rounds), NextAuth Credentials (`POST /api/auth/*`), and a
-    protected `/dashboard` with a server-side session and verified-account check.
-  - **Phase 3 — Email verification** — a `crypto.randomBytes(32)` token stored
-    as a SHA-256 hash with a 15-minute expiry and emailed via Resend;
-    `/verify-email/[token]` marks the user verified and deletes the token in a
-    transaction; the resend endpoint cannot enumerate accounts.
-  - **Phase 4 — Forgot password** — a reset token (same design, 1-hour expiry);
-    `/forgot-password` answers identically whether or not the address exists;
-    `/reset-password/[token]` swaps the bcrypt hash and deletes the token in a
-    transaction.
-  - **Phase 5 — Rate limiting & hardening** — an Upstash sliding-window limiter
-    (5 per IP per 10 minutes) on sign-in (in `middleware.ts`, before NextAuth
-    runs) and on forgot-password; security headers on every route.
-  - **Phase 6 — UI polish** — shared auth components, one auth screen, logout,
-    password-strength meter, accessible labels and loading states.
+All six phases are built, tested, and deployed. The data layer is three Prisma
+models (`User`, `verification_tokens`, `password_reset_tokens`) on cloud
+PostgreSQL, with migration `20260929190222_init` applied. Each phase is
+detailed in its own section below; the app runs live at
+**https://secure-gate-peach.vercel.app/**.
 
 ## Phase 2 — Session strategy: JWT vs database
 
@@ -166,19 +147,20 @@ one small lookup.
 
 ### Email delivery status
 
-Phase 3 code is complete and the full loop is tested. Delivery is limited by
-the free tier: without a verified sending domain, Resend only delivers to the
-account holder's own address. Emails are sent from Resend's own
-`onboarding@resend.dev` address, which the test flow uses.
+Phase 3 code is complete and the full loop is tested end to end locally. A
+sending domain is verified in Resend (see [Stack](#stack)), so verification
+emails deliver to any address, not only the account holder's — live delivery
+is confirmed. The only change needed was `RESEND_FROM_EMAIL`; the sending
+logic is untouched.
 
 | Scenario | Works? |
 | --- | --- |
-| Verify flow end to end (own address) | ✅ tested |
-| Resend a fresh link | ✅ tested |
-| Deliver to other addresses | ⏳ needs a verified domain |
+| Verify flow end to end | ✅ tested locally |
+| Resend a fresh link | ✅ tested locally |
+| Deliver to other addresses | ✅ tested live (verified domain) |
 
-Upgrading is a Resend console change (verify a domain) plus setting
-`RESEND_FROM_EMAIL`; the code does not change.
+The free tier still caps daily volume, and sending to other addresses only
+works while the domain stays verified.
 
 ## Phase 4 — Forgot password
 
@@ -221,9 +203,8 @@ double-submit matches the row once and the second attempt finds no token.
 
 ### Email delivery status
 
-Same free-tier constraint as Phase 3: reset emails currently deliver only to
-the account holder's own address. The reset flow was tested end to end;
-delivery to other addresses needs a verified domain.
+Same verified sending domain as Phase 3, so reset emails deliver to any
+address. The reset flow is tested end to end locally.
 
 ## Phase 5 — Rate limiting & security hardening
 
@@ -357,24 +338,37 @@ weak password visible before the submit is wasted.
 - **Colour** — the dark-mode leftovers were removed; the app is one light,
   high-contrast surface.
 
-### Deploy checklist
+### Deployment
 
-The app runs on Vercel as-is. To deploy:
+The app is deployed on Vercel at **https://secure-gate-peach.vercel.app/**.
+The steps that were taken, kept here so the deploy is reproducible:
 
-1. Push the repo, then in the Vercel dashboard create a project pointing at it
-   (framework preset Next.js; the App Router is picked up automatically).
-2. Set the project's Environment Variables — the same seven as in Phase 5:
+1. The GitHub repo was imported into Vercel as a project (framework preset
+   Next.js; the App Router is picked up automatically).
+2. The project's Environment Variables were set — the same seven as in Phase 5:
    `DATABASE_URL`, `NEXTAUTH_SECRET`, `NEXTAUTH_URL`, `RESEND_API_KEY`,
    `RESEND_FROM_EMAIL`, `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN`.
-   `NEXTAUTH_URL` is the deployed `https://…vercel.app` URL.
-3. Deploy. The code path is identical to localhost: the rate-limit counter has
-   always lived in Upstash (it survives restarts and re-deploys), the database
-   is already a cloud PostgreSQL, and email already goes through Resend.
-4. Hit the live URL: `/`, `/login`, `/register`, `/forgot-password`,
-   `/dashboard` and the token routes, then run the hand-verified checks in the
-   [Manual test record](#manual-test-record) against it.
+   `NEXTAUTH_URL` is the deployed `https://secure-gate-peach.vercel.app/` URL;
+   locally it stays `http://localhost:3000`.
+3. Deployed. The code path is identical to localhost: the rate-limit counter
+   lives in Upstash (it survives restarts and re-deploys), the database is
+   already cloud PostgreSQL, and email goes through Resend.
+4. The sending domain was verified in Resend and `RESEND_FROM_EMAIL` set to
+   the verified `noreply@` address, so mail reaches any address, not only the
+   account holder's.
+5. The live routes were checked — `/`, `/login`, `/register`,
+   `/forgot-password` all return `200`, and `/dashboard` without a session
+   returns `307` to `/login`. See the
+   [Manual test record](#manual-test-record).
+
+The GO54 domain is used only as the email-sending identity; the app itself
+stays on the `vercel.app` URL.
 
 ## Getting started
+
+These instructions are for **local development**, which runs the app at
+`http://localhost:3000`. The deployed app lives at
+**https://secure-gate-peach.vercel.app/** (see [Deployment](#deployment)).
 
 ```bash
 npm install
@@ -436,51 +430,15 @@ npm run dev              # http://localhost:3000
 - **The dashboard redirect does not echo a user-supplied URL.** Passing a
   query-string value straight into a redirect is an open redirect; the login
   page reads `callbackUrl`, but the protected page never sends one.
-- **Verification tokens are generated with `crypto.randomBytes`,** which is a
-  cryptographically secure source and not predictable from previous output the
-  way `Math.random()` is.
-- **Verification tokens are stored hashed, never raw.** The raw token exists
-  only in the emailed link; the database holds a SHA-256 hash. A leaked
-  `verification_tokens` table yields tokens that cannot be used to verify
-  anyone's account. Expired tokens are deleted on use; a dead or unknown
-  token shows one generic "not valid" page.
-- **The verify writes are transactional.** "Mark verified" and "delete token"
-  cannot be split by a crash, and `updateMany` with `emailVerified: null`
-  makes a re-click a no-op instead of an error.
-- **The resend endpoint cannot enumerate accounts.** It returns the same
-  message whether the email exists, is already verified, or was never
-  registered.
-- **Signed-in but unverified users cannot reach `/dashboard`.** The check
-  re-reads `emailVerified` from the database on every request, so it reflects
-  verification immediately and cannot be bypassed with an old cookie.
-- **The forgot-password endpoint cannot enumerate accounts.** It returns the
-  same 200 message whether the email exists or not and only creates a
-  reset-token row for addresses that actually have an account.
-- **Reset tokens are generated with the same CSPRNG and stored hashed** as
-  verification tokens; the raw value lives only in the emailed link. An
-  expired or unknown token renders a clear error with a "request a new link"
-  path, never a stack trace or an internal detail.
-- **The reset writes are transactional.** "Change password" and "delete token"
-  cannot be split by a crash, so a used reset link cannot be replayed.
-- **Sign-in is rate limited at the endpoint, before auth runs.** 5 attempts
-  per IP per 10 minutes via Upstash Redis, counted in middleware for both
-  `POST /api/auth/signin` and `POST /api/auth/callback/credentials`. Because it
-  runs before NextAuth, even malformed attempts consume budget. A 6th attempt
-  from the same IP gets `429`.
-- **Forgot-password is rate limited too.** Same 5-per-10-minutes budget by IP,
-  so the email channel cannot be hammered.
-- **The rate-limit counter survives restarts.** It lives in Upstash Redis, not
-  in server memory, so a redeploy cannot reset an attacker's counter.
-- **HTTP responses include security headers.** `nosniff`, `no-referrer`, and
-  `SAMEORIGIN` framing are set on every route in `next.config.mjs`.
-- **API error messages never leak internals.** Reviewed across register,
-  login, forgot-password, reset-password and resend: no stack traces, no
-  "email not found" confirmations, no password echoes.
 - **Prisma maps `DateTime` to `timestamp without time zone`** and normalises to
   UTC in the client. The application's own timestamp columns are therefore
   timezone-naive in the database, while Prisma's internal
   `_prisma_migrations` table uses `timestamptz`. Inspecting raw timestamps
   in `psql` can therefore be misleading.
+
+Token generation, hashing, single-use deletion, transactional writes,
+account-enumeration resistance and rate limiting are covered in the Phase 3–5
+sections above.
 
 ## Manual test record
 
@@ -514,8 +472,6 @@ Phase 3 verification flow, tested end to end:
 | Malformed token URL | "not valid", no database hit |
 | Resend endpoint | identical response whether or not the account exists |
 
-Test users were deleted afterwards; the `User` table was left empty.
-
 Phase 4 forgot-password flow, tested end to end via HTTP:
 
 | Check | Result |
@@ -528,9 +484,6 @@ Phase 4 forgot-password flow, tested end to end via HTTP:
 | Reset-token after use | deleted — reuse returns "This link is not valid" |
 | Old password | rejected (`401`) |
 | New password | accepted — login succeeds after reset |
-
-Test users (including the throwaway expired-token account) were deleted
-afterwards; the database was left empty.
 
 Phase 5 break-it tests, run by hand against the running app:
 
@@ -545,7 +498,7 @@ Phase 5 break-it tests, run by hand against the running app:
 | Garbage verify token | `GET /verify-email/<garbage>` | "not valid" page, no database hit |
 | Unknown reset token | `POST /api/reset-password` with an unknown token | `400 "This link is not valid..."` |
 | Security headers | DevTools → Network → Headers on `/login` | `referrer-policy: no-referrer`, `x-content-type-options: nosniff`, `x-frame-options: SAMEORIGIN` |
-| Reset flow, live | forgot-password with real address → email link → new password | reset email arrives, link opens `/reset-password/[token]`, new password accepted, redirect to `/login?reset=1` |
+| Reset flow, end to end | forgot-password with real address → email link → new password | reset email arrives, link opens `/reset-password/[token]`, new password accepted, redirect to `/login?reset=1` |
 | Used-token page | click the same reset link again | page shows "This link is not valid" and **never renders the form** |
 | Dead/fake token via API | `POST /api/reset-password` with `aaaa…` token | `400 {"error":"This link is not valid. Request a new reset link."}` — no password change |
 | Valid-token contrast | `POST /api/reset-password` with a fresh, unused token | `200 {"ok":true}` — the password IS changed (then restored) |
@@ -568,18 +521,19 @@ the next burst in the same window is then blocked, and the 5-per-10-minutes
 budget still holds.) Good enough for the brief, and the counter survives
 restarts because it lives in Upstash, not memory.
 
-The rate-limit counters were flushed after testing; the `User` table holds only
-the real account.
+After testing, the throwaway accounts were deleted (the `User` table holds only
+the real account) and the rate-limit counters were flushed.
 
-Phase 6 checks, run against the running app:
+Phase 6 checks — the first block run locally, the second against the live
+deployment at **https://secure-gate-peach.vercel.app/**:
 
-| Check | Result |
-| --- | --- |
-| `/login`, `/register`, `/forgot-password` | all `200`, each renders its own mode (only one form is ever mounted) |
-| Document titles | `Sign in · SecureGate`, `Create your account · SecureGate`, `Forgot your password? · SecureGate` |
-| `/login?registered=1`, `/login?verify=1` and `/login?verified=1` banners | each renders its alert on the login screen |
-| `/dashboard` with no session | `307` → `/login` (unchanged) |
-| Password-strength meter | renders once a password is typed on signup |
-
-The in-browser click-through (mode switching, sign-in, logout) is the last
-check before deploy.
+| Check | Where | Result |
+| --- | --- | --- |
+| `/login`, `/register`, `/forgot-password` | local | all `200`, each renders its own mode (only one form is ever mounted) |
+| Document titles | local | `Sign in · SecureGate`, `Create your account · SecureGate`, `Forgot your password? · SecureGate` |
+| `/login?registered=1`, `/login?verify=1` and `/login?verified=1` banners | local | each renders its alert on the login screen |
+| `/dashboard` with no session | local | `307` → `/login` (unchanged) |
+| Password-strength meter | local | renders once a password is typed on signup |
+| `/`, `/login`, `/register`, `/forgot-password` | live | each returns `200` |
+| `/dashboard` with no session | live | `307` → `/login` |
+| Register with a non-Resend email address | live | verification email delivered from the verified sending domain, so mail is no longer limited to the account holder |
